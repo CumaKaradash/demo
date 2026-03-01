@@ -1,9 +1,12 @@
-import NextAuth from 'next-auth';
-import Credentials from 'next-auth/providers/credentials';
+import NextAuth from "next-auth";
+import Credentials from "next-auth/providers/credentials";
+import { compare } from "bcryptjs";
+import { prisma } from "@/lib/prisma";
 
-declare module 'next-auth' {
+declare module "next-auth" {
   interface User {
     role: string;
+    subdomain?: string | null;
   }
 
   interface Session {
@@ -13,51 +16,86 @@ declare module 'next-auth' {
       email?: string | null;
       image?: string | null;
       role: string;
+      subdomain?: string | null;
     };
   }
 }
 
-declare module 'next-auth/jwt' {
+declare module "next-auth/jwt" {
   interface JWT {
     role: string;
+    subdomain?: string | null;
+    userId: string;
   }
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Credentials({
-      name: 'credentials',
+      name: "credentials",
       credentials: {
-        email: { label: 'Email', type: 'email' },
-        password: { label: 'Password', type: 'password' }
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
       },
-      authorize: async (credentials: { email: string; password: string } | undefined) => {
+      authorize: async (credentials) => {
         if (!credentials?.email || !credentials?.password) {
           return null;
         }
 
-        // For demo purposes, we'll use a hardcoded admin user
-        // In production, this should be replaced with database lookup
-        const adminEmail = process.env.ADMIN_EMAIL || 'admin@psikolog.com';
-        const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+        const email = credentials.email as string;
+        const password = credentials.password as string;
 
-        if (credentials.email === adminEmail && credentials.password === adminPassword) {
+        try {
+          const user = await prisma.user.findUnique({
+            where: { email },
+            include: { role: true },
+          });
+
+          if (!user || !user.password || !user.is_active) {
+            return null;
+          }
+
+          const isValid = await compare(password, user.password);
+          if (!isValid) {
+            return null;
+          }
+
           return {
-            id: '1',
-            email: adminEmail,
-            name: 'Psikolog Admin',
-            role: 'admin'
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role.name,
+            subdomain: user.subdomain,
           };
+        } catch (error) {
+          console.error("Auth error:", error);
+          return null;
         }
-
-        return null;
-      }
-    })
+      },
+    }),
   ],
   session: {
-    strategy: 'jwt'
+    strategy: "jwt",
+  },
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.role = (user as any).role;
+        token.subdomain = (user as any).subdomain;
+        token.userId = user.id as string;
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        session.user.id = token.userId;
+        session.user.role = token.role;
+        session.user.subdomain = token.subdomain;
+      }
+      return session;
+    },
   },
   pages: {
-    signIn: '/login'
-  }
+    signIn: "/login",
+  },
 });
