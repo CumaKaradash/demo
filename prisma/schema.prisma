@@ -1,0 +1,215 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Models
+
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  phone     String
+  address   String?
+  notes     String?
+  status    ClientStatus @default(active)
+  company   String?
+  tax_id    String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relations
+  appointments Appointment[]
+  invoices     Invoice[]
+  formResponses FormResponse[]
+
+  @@map("clients")
+}
+
+model Appointment {
+  id          String   @id @default(cuid())
+  client_id   String
+  service_type String
+  date        String // ISO date string
+  time        String // HH:MM format
+  duration    Int
+  status      AppointmentStatus @default(scheduled)
+  notes       String?
+  price       Float?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  client     Client     @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  invoices   Invoice[]
+
+  @@map("appointments")
+}
+
+model Invoice {
+  id            String   @id @default(cuid())
+  client_id     String
+  appointment_id String?
+  invoice_number String   @unique
+  issue_date     String // ISO date
+  due_date       String // ISO date
+  status         InvoiceStatus @default(draft)
+  subtotal       Float
+  tax_rate       Float
+  tax_amount     Float
+  total          Float
+  notes          String?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  // Relations
+  client      Client       @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  appointment Appointment? @relation(fields: [appointment_id], references: [id])
+  items       InvoiceItem[]
+  transactions Transaction[]
+
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  invoice_id  String
+  description String
+  quantity    Int
+  unit_price  Float
+  total       Float
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  invoice Invoice @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+
+  @@map("invoice_items")
+}
+
+model Form {
+  id          String   @id @default(cuid())
+  title       String
+  slug        String   @unique
+  description String?
+  is_active   Boolean  @default(true)
+  fields      Json // FormField[] as JSON
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  responses FormResponse[]
+
+  @@map("forms")
+}
+
+model FormResponse {
+  id         String  @id @default(cuid())
+  form_id    String
+  client_id  String
+  responses  Json // Record<string, any> as JSON
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relations
+  form   Form   @relation(fields: [form_id], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [client_id], references: [id], onDelete: Cascade)
+
+  @@map("form_responses")
+}
+
+model Transaction {
+  id             String  @id @default(cuid())
+  type           TransactionType
+  category       String
+  description    String
+  amount         Float
+  date           String // ISO date
+  payment_method PaymentMethod
+  invoice_id     String?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  // Relations
+  invoice Invoice? @relation(fields: [invoice_id], references: [id])
+
+  @@map("transactions")
+}
+
+// User model for authentication and role management
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  password  String? // For credentials provider (hashed)
+  image     String?
+  role_id   String
+  is_active Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relations
+  role Role @relation(fields: [role_id], references: [id])
+
+  @@map("users")
+}
+
+// Role model for authorization
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique // e.g., 'admin', 'sekreter', 'asistan'
+  description String?
+  permissions Json? // Store permissions as JSON
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  users User[]
+
+  @@map("roles")
+}
+
+// Enums
+
+enum ClientStatus {
+  active
+  inactive
+  prospect
+}
+
+enum AppointmentStatus {
+  scheduled
+  completed
+  cancelled
+  no_show
+}
+
+enum InvoiceStatus {
+  draft
+  sent
+  paid
+  overdue
+  cancelled
+}
+
+enum TransactionType {
+  income
+  expense
+}
+
+enum PaymentMethod {
+  cash
+  bank
+  card
+  transfer
+}
