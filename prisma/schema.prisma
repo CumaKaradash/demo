@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client"
   output   = "../lib/generated/prisma"
@@ -25,32 +22,38 @@ model Client {
   status    ClientStatus @default(active)
   company   String?
   tax_id    String?
+  user_id   String?
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   // Relations
+  user         User?          @relation(fields: [user_id], references: [id])
   appointments Appointment[]
   invoices     Invoice[]
   formResponses FormResponse[]
+  sharedCases  SharedCase[]
 
   @@map("clients")
 }
 
 model Appointment {
-  id          String   @id @default(cuid())
-  client_id   String
-  service_type String
-  date        String // ISO date string
-  time        String // HH:MM format
-  duration    Int
-  status      AppointmentStatus @default(scheduled)
-  notes       String?
-  price       Float?
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+  id            String   @id @default(cuid())
+  client_id     String
+  service_type  String
+  date          String // ISO date string
+  time          String // HH:MM format
+  duration      Int
+  status        AppointmentStatus @default(scheduled)
+  notes         String?
+  client_notes  String?
+  price         Float?
+  user_id       String?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
 
   // Relations
   client     Client     @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  user       User?      @relation(fields: [user_id], references: [id])
   invoices   Invoice[]
 
   @@map("appointments")
@@ -104,10 +107,12 @@ model Form {
   description String?
   is_active   Boolean  @default(true)
   fields      Json // FormField[] as JSON
+  user_id     String?
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
   // Relations
+  user      User?          @relation(fields: [user_id], references: [id])
   responses FormResponse[]
 
   @@map("forms")
@@ -137,11 +142,13 @@ model Transaction {
   date           String // ISO date
   payment_method PaymentMethod
   invoice_id     String?
+  user_id        String?
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
 
   // Relations
   invoice Invoice? @relation(fields: [invoice_id], references: [id])
+  user    User?    @relation(fields: [user_id], references: [id])
 
   @@map("transactions")
 }
@@ -153,13 +160,23 @@ model User {
   name      String?
   password  String? // For credentials provider (hashed)
   image     String?
+  subdomain String?  @unique
   role_id   String
   is_active Boolean  @default(true)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   // Relations
-  role Role @relation(fields: [role_id], references: [id])
+  role                 Role           @relation(fields: [role_id], references: [id])
+  clients              Client[]
+  appointments         Appointment[]
+  forms                Form[]
+  transactions         Transaction[]
+  communityTests       CommunityTest[]
+  sentConnections      Connection[]   @relation("SentConnections")
+  receivedConnections  Connection[]   @relation("ReceivedConnections")
+  sharedCasesSent      SharedCase[]   @relation("SharedCasesSent")
+  sharedCasesReceived  SharedCase[]   @relation("SharedCasesReceived")
 
   @@map("users")
 }
@@ -177,6 +194,59 @@ model Role {
   users User[]
 
   @@map("roles")
+}
+
+// Community test sharing
+model CommunityTest {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  questions   Json
+  author_id   String
+  is_public   Boolean  @default(false)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  author User @relation(fields: [author_id], references: [id])
+
+  @@map("community_tests")
+}
+
+// Colleague connections
+model Connection {
+  id           String           @id @default(cuid())
+  requester_id String
+  addressee_id String
+  status       ConnectionStatus @default(PENDING)
+  created_at   DateTime         @default(now())
+  updated_at   DateTime         @updatedAt
+
+  // Relations
+  requester User @relation("SentConnections", fields: [requester_id], references: [id])
+  addressee User @relation("ReceivedConnections", fields: [addressee_id], references: [id])
+
+  @@unique([requester_id, addressee_id])
+  @@map("connections")
+}
+
+// Shared cases between colleagues
+model SharedCase {
+  id                  String      @id @default(cuid())
+  client_id           String
+  shared_by_user_id   String
+  shared_with_user_id String
+  access_level        AccessLevel @default(READ)
+  created_at          DateTime    @default(now())
+  updated_at          DateTime    @updatedAt
+
+  // Relations
+  client      Client @relation(fields: [client_id], references: [id])
+  shared_by   User   @relation("SharedCasesSent", fields: [shared_by_user_id], references: [id])
+  shared_with User   @relation("SharedCasesReceived", fields: [shared_with_user_id], references: [id])
+
+  @@unique([client_id, shared_by_user_id, shared_with_user_id])
+  @@map("shared_cases")
 }
 
 // Enums
@@ -212,4 +282,14 @@ enum PaymentMethod {
   bank
   card
   transfer
+}
+
+enum ConnectionStatus {
+  PENDING
+  ACCEPTED
+}
+
+enum AccessLevel {
+  READ
+  WRITE
 }
